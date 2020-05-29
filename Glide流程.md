@@ -324,5 +324,36 @@
 
   首先`loadFromMemory(key,isMemoryCacheable,startTime)`，如果你在`Glide.with().skipMemory(true/false)`这里设置的`true`，则证明不走内存缓存，直接返回为`null`
 
-  这个`loadFromMemory`得说道说道，首先调用`loadFromActiveResources(key)`，这里会调用`ActiveResources`类的方法，从它的`HashMap`集合中通过`key`来获取。既然是获取，那就 有`put`的地方，这里是在`Engine的onEngineJobComplete()`方法里调用，即再`Engine`调用流程完成后来存到内存中~第二个`put`的地方是`Engine的loadFromCache()`l里，通过`Cache`拿到对应的`resource`，不为`null`，则调用`activeResources.active(key,cached)`方法存入到内存中。
+  这个`loadFromMemory`得说道说道，首先调用`loadFromActiveResources(key)`，这里会调用`ActiveResources`类的方法，从它的`HashMap`集合中通过`key`来获取。既然是获取，那就 有`put`的地方，这里是在`Engine的onEngineJobComplete()`方法里调用，即再`Engine`调用流程完成后来存到内存中~第二个`put`的地方是`Engine的loadFromCache()`l里，通过`Cache`拿到对应的`resource`，不为`null`，则调用`activeResources.active(key,cached)`方法存入到内存中。如果返回的也是`null`的话，则调用`waitForExistingOrStartNewJob()`方法
+
+* `waitForExistingOrStartNewJob()`真正的网络拉取方法
+
+  `jobs.get(key, onlyRetrieveFromCache)`通过`key`来判断是否有已存的`EngineJob`，有的话，直接`return new LoadStatus(cb, current)`。这里的`cb`不为空，则会直接调用对应的`EngineJob的addCallback()`方法，这里会调用后面的`current.excute(new CallResourceReady(cb))`或`current.execute(new CallLoadFailed(cb))`方法来，这里是线程池的调用，会启动`CallResourceReady`的`run()`方法。这里就是`onResourceReady()`之类的方法了；
+
+  如果`jobs.get()`返回的 是`null`的话，只能从网络获取了。这里构造了一个`EngineJob`和`DecodeJob`两个实例，注意这里`jobs.put(key, engineJob);`这里就对应了上面的`jobs.get()`的`EngineJob`，然后调用
+
+  ```java
+  engineJob.addCallback(cb, callbackExecutor);
+  engineJob.start(decodeJob);	
+  ```
+
+  这里就开启了真正的请求网络以及编解码的地方，真正的方法在`decodeJob`里的`run()`方法
+
+  **`run()`**
+
+  首先将当前的`currentFetcher`赋予局部变量`localFetcher`，并在最后执行`clean()`方法。
+
+  核心方法`runWrapped()`：
+
+  ​	首先`INITIALIZE`： `getNextStage(Stage.INITIALIZE)`直到获取到`stage`为`Stage.DATA_CACHE`。
+
+  ​	然后`getNextGenerator()`来获取对应的`ResourceCacheGenerator`
+
+  ​	然后调用`runGenerators()`这里会调用上面的`startNext()`方法
+
+  `startNext()`方法解析：
+  
+  	1. 首先`helper.getCacheKeys()`方法获取所有缓存的`keys`，如果为空的，直接返回`false`,然后`helper.getRegisteredResourceClasses()`：注意这个方法里面的`transcodeClass`一般为`as(xx)`里的`xx`的`class`类型，例如`as(Bitmap.class)`。`model`来说一般是加载是`url`路径，有`String uri inputStream`等等，`transcdoeClass`一般来说是用户在`Glide.with(xx).transcode(xxx)`里对应的`xxx`，如果从缓存拿到的是`null`，则通过`modelLoaderRegistry.getDataClasses(modelClass)`来获取`model例如GlideUrl.class`对应的所有的`dataclass 例如：OkHttpDataFetcher`，然后通过`decoderRegistry用dataClass resourceClass`获取对应注册的`ResourceClass`，再用`transcoderRegistry `通过获取到的`registerdResourceClass和trancodeClass`进一步筛选，找到符合的`registerdResourceClass`集合
+   	2. ，获取所有已注册`resourceClasses`对象集合。如果获取到的是空的，则判断传入的`TranscodeClass`类	型，如果是`File`类型，则直接返回`false`
+   	3. 通过`while`循环`modelLoaders`，
 
